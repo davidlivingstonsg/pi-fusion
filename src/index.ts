@@ -87,6 +87,12 @@ function registerFusionTool(
             'Reserved grace between child and panel deadlines in milliseconds',
         }),
       ),
+      scratch: Type.Optional(
+        Type.Boolean({
+          description:
+            'Give each panelist a private temp directory as its cwd, with shell and write tools, so panelists can check out PRs, build, and run tests concurrently',
+        }),
+      ),
       judgeTimeoutMs: Type.Optional(
         Type.Integer({
           minimum: 1,
@@ -104,6 +110,7 @@ function registerFusionTool(
             : {}),
           ...(params.profile !== undefined ? { profile: params.profile } : {}),
           ...(params.panel !== undefined ? { panel: params.panel } : {}),
+          ...(params.scratch ? { scratch: true } : {}),
           ...(params.panelistTimeoutMs !== undefined ||
           params.panelTimeoutMs !== undefined ||
           params.panelGraceMs !== undefined ||

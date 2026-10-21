@@ -462,6 +462,12 @@ function isFusionProfile(value: unknown): value is FusionProfile {
     return false;
   }
   if (
+    value.scratchWorkspaces !== undefined &&
+    typeof value.scratchWorkspaces !== 'boolean'
+  ) {
+    return false;
+  }
+  if (
     value.panelToolBudget !== undefined &&
     !isToolBudget(value.panelToolBudget)
   ) {

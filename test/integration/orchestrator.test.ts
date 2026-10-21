@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { onTestFinished, test, vi } from 'vitest';
@@ -16,6 +16,7 @@ import {
 import { FusionRunStore } from '../../src/run-store.js';
 import type { FusionConfig } from '../../src/types.js';
 import { required } from '../support/required.js';
+import { removeScratchRoot, serializedPanelTasks } from '../support/scratch.js';
 
 function judgeWorkflowTask(spawn: unknown): {
   agent: string;
@@ -2595,4 +2596,23 @@ test('--judge composes with an inline --panel run and survives a restore', async
   const judge = judgeWorkflowTask(second.rpc.spawns.at(-1));
   assert.equal(judge.agent, 'replacement-judge');
   assert.equal(judge.model, 'gpt-5.5:high');
+});
+
+test('scratch runs create one private directory per panelist', async () => {
+  const fixture = makeFixture();
+
+  const result = await fixture.orchestrator.startRun(
+    '--scratch compare APIs',
+    fixture.ctx,
+  );
+
+  assert.equal(result.status, 'started');
+  const tasks = serializedPanelTasks(fixture.rpc.spawns[0]);
+  const dirs = tasks.map((task) => required(task.cwd));
+  onTestFinished(() => removeScratchRoot(required(dirs[0])));
+  assert.equal(new Set(dirs).size, 2);
+  for (const [index, dir] of dirs.entries()) {
+    assert.ok((await stat(dir)).isDirectory());
+    assert.match(required(tasks[index]).task, /\/project is shared/);
+  }
 });

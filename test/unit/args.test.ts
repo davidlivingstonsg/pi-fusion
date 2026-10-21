@@ -241,3 +241,8 @@ test('parseFusionArgs keeps apostrophes and quotes in the free-text prompt', () 
   assert.equal(args.timeoutOverrides?.judgeTimeoutMs, 5);
   assert.equal(args.prompt, "Don't  drop  spacing");
 });
+
+test('parseFusionArgs reads --scratch only before the prompt', () => {
+  assert.equal(parseFusionArgs('/fusion --scratch Review PR 5').scratch, true);
+  assert.equal(parseFusionArgs('/fusion Review --scratch').scratch, undefined);
+});

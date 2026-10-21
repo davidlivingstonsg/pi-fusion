@@ -14,6 +14,7 @@ export type ThinkingLevel = (typeof THINKING_LEVELS)[number];
 export const PANEL_AGENT = 'pi-fusion.fusion-panelist';
 export const PANEL_AGENT_WEB = 'pi-fusion.fusion-panelist-web';
 export const PANEL_AGENT_FULL = 'pi-fusion.fusion-panelist-full';
+export const PANEL_AGENT_SHELL = 'pi-fusion.fusion-panelist-shell';
 export const JUDGE_AGENT = 'pi-fusion.fusion-judge';
 export const COMPOSER_AGENT = 'pi-fusion.fusion-composer';
 
@@ -27,6 +28,13 @@ export interface FusionReviewContext {
   reviewedCommit: string;
 }
 export type CallerOutputContract = 'plan-review-v1';
+
+/** Per-run scratch area: each panelist gets its own directory under `root`. */
+export interface ScratchWorkspace {
+  root: string;
+  /** The checkout panelists may read but must not change. */
+  sourceCwd: string;
+}
 
 /**
  * How panel answers become one report.
@@ -98,6 +106,12 @@ export interface FusionProfile {
   minimumSuccessfulPanelists?: MinimumSuccessfulPanelists;
   context?: FusionContextMode;
   stopWhenPanelAgrees?: boolean;
+  /**
+   * Give each panelist its own temporary directory as its cwd, with shell and
+   * write tools, so concurrent panelists can clone, build, and test without
+   * colliding. Bundled read-only panelists switch to `fusion-panelist-shell`.
+   */
+  scratchWorkspaces?: boolean;
   /**
    * Present panel answers to the judge as "Candidate A/B/C" instead of the
    * configured labels. Role names read as authority cues before a word of
@@ -223,6 +237,8 @@ export interface ParsedFusionArgs {
    */
   judgeOverride?: string;
   timeoutOverrides?: FusionTimeoutOverrides;
+  /** Per-run override of `FusionProfile.scratchWorkspaces`. */
+  scratch?: boolean;
 }
 
 export interface PanelOutput {

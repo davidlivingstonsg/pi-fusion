@@ -1,3 +1,4 @@
+import { join } from 'node:path';
 import {
   callerOutputContractInstructions,
   detectCallerOutputContract,
@@ -20,10 +21,14 @@ import {
   type FusionTimeoutOverrides,
   JUDGE_AGENT,
   memberLabel,
+  PANEL_AGENT,
+  PANEL_AGENT_SHELL,
+  PANEL_AGENT_WEB,
   type PanelMemberConfig,
   type PanelOutput,
   panelItemLabel,
   resolveSynthesisMode,
+  type ScratchWorkspace,
   THINKING_LEVELS,
   type ThinkingLevel,
   type ToolBudget,
@@ -56,6 +61,8 @@ export interface PanelSubagentTaskParams {
   skill: false;
   acceptance: FusionAcceptanceDisabled;
   model?: string;
+  /** Private scratch directory when the run uses scratch workspaces. */
+  cwd?: string;
   /** Per-task cap so a panelist finalises before the workflow timeout. */
   toolBudget: ToolBudget;
   /** Child deadline, always shorter than the enclosing panel workflow. */
@@ -210,6 +217,7 @@ export function buildPanelSpawnParams(
   callerContract?: CallerOutputContract,
   timeoutOverrides?: FusionTimeoutOverrides,
   executionLifetime?: undefined,
+  scratch?: ScratchWorkspace,
 ): LegacyPanelSpawnParams;
 export function buildPanelSpawnParams(
   profile: FusionProfile,
@@ -217,6 +225,7 @@ export function buildPanelSpawnParams(
   callerContract: CallerOutputContract | undefined,
   timeoutOverrides: FusionTimeoutOverrides | undefined,
   executionLifetime: ExecutionLifetime,
+  scratch?: ScratchWorkspace,
 ): OwnedPanelSpawnParams;
 export function buildPanelSpawnParams(
   profile: FusionProfile,
@@ -224,6 +233,7 @@ export function buildPanelSpawnParams(
   callerContract?: CallerOutputContract,
   timeoutOverrides?: FusionTimeoutOverrides,
   executionLifetime?: ExecutionLifetime,
+  scratch?: ScratchWorkspace,
 ): PanelSpawnParams;
 export function buildPanelSpawnParams(
   profile: FusionProfile,
@@ -231,6 +241,7 @@ export function buildPanelSpawnParams(
   callerContract?: CallerOutputContract,
   timeoutOverrides?: FusionTimeoutOverrides,
   executionLifetime?: ExecutionLifetime,
+  scratch?: ScratchWorkspace,
 ): PanelSpawnParams {
   if (
     profile.stopWhenPanelAgrees &&
@@ -248,21 +259,26 @@ export function buildPanelSpawnParams(
     : resolveEffectiveTimeouts(profile, timeoutOverrides);
   const concurrency = effectivePanelConcurrency(profile);
   const tasks: PanelWorkflowTaskParams[] = profile.panel.map(
-    (member, index) => ({
-      key: `panel-${index + 1}`,
-      ...buildPanelTaskParams(
-        member,
-        prompt,
-        profile.stopWhenPanelAgrees === true,
-        profile.panelToolBudget ?? DEFAULT_TOOL_BUDGET,
-        callerContract,
-        executionLifetime?.mode === 'bounded'
-          ? executionLifetime.timeoutMs
-          : timeouts?.panelistTimeoutMs,
-        timeouts?.panelistSoftTimeoutMs !== undefined,
-        executionLifetime,
-      ),
-    }),
+    (member, index) => {
+      const workspace = resolvePanelWorkspace(member, index, scratch);
+      return {
+        key: `panel-${index + 1}`,
+        ...buildPanelTaskParams(
+          workspace.member,
+          prompt,
+          profile.stopWhenPanelAgrees === true,
+          profile.panelToolBudget ?? DEFAULT_TOOL_BUDGET,
+          callerContract,
+          executionLifetime?.mode === 'bounded'
+            ? executionLifetime.timeoutMs
+            : timeouts?.panelistTimeoutMs,
+          timeouts?.panelistSoftTimeoutMs !== undefined,
+          executionLifetime,
+          workspace.rules,
+        ),
+        ...(workspace.cwd ? { cwd: workspace.cwd } : {}),
+      };
+    },
   );
 
   const requiredSuccessfulPanelists = resolveMinimumSuccessfulPanelists(
@@ -535,6 +551,7 @@ function buildPanelTaskParams(
   timeoutMs?: number,
   allowSupervisor = false,
   executionLifetime?: ExecutionLifetime,
+  workspaceRules: readonly string[] = [READ_ONLY_RULE],
 ): PanelSubagentTaskParams {
   const model = appendThinkingSuffix(member.model, member.thinking);
   return {
@@ -545,6 +562,7 @@ function buildPanelTaskParams(
       includeDecisionRecord,
       callerContract,
       allowSupervisor,
+      workspaceRules,
     ),
     output: true,
     outputMode: 'inline',
@@ -576,12 +594,68 @@ function executionLifetimeFields(
   return timeoutMs !== undefined ? { timeoutMs } : {};
 }
 
+const READ_ONLY_RULE =
+  '- Read-only: inspect only; leave files, git state, and the workspace untouched.';
+
+/** Bundled panelists without write tools; scratch runs swap them for the shell agent. */
+const READ_ONLY_PANEL_AGENTS = new Set([PANEL_AGENT, PANEL_AGENT_WEB]);
+
+interface PanelWorkspace {
+  member: PanelMemberConfig;
+  rules: readonly string[];
+  cwd?: string;
+}
+
+function resolvePanelWorkspace(
+  member: PanelMemberConfig,
+  index: number,
+  scratch: ScratchWorkspace | undefined,
+): PanelWorkspace {
+  if (!scratch) return { member, rules: [READ_ONLY_RULE] };
+  const cwd = scratchPanelDir(scratch.root, index, member);
+  const agent = READ_ONLY_PANEL_AGENTS.has(member.agent)
+    ? PANEL_AGENT_SHELL
+    : member.agent;
+  return {
+    member: { ...member, agent },
+    cwd,
+    rules: scratchWorkspaceRules(cwd, scratch.sourceCwd),
+  };
+}
+
+/** The private directory a panelist uses under a scratch root. */
+export function scratchPanelDir(
+  root: string,
+  index: number,
+  member: PanelMemberConfig,
+): string {
+  return join(root, `panel-${index + 1}-${scratchDirName(member.id)}`);
+}
+
+function scratchDirName(id: string): string {
+  return (
+    id
+      .toLowerCase()
+      .replace(/[^a-z0-9_-]+/g, '-')
+      .replace(/^-+|-+$/g, '') || 'member'
+  );
+}
+
+function scratchWorkspaceRules(cwd: string, sourceCwd: string): string[] {
+  return [
+    `- Your private scratch directory is ${cwd}. It is your working directory and no other panelist uses it.`,
+    '- Clone, check out branches or PRs, build, run tests, and write files only inside it.',
+    `- ${sourceCwd} is shared with other panelists: read it, but leave its files and git state untouched. Work on a copy instead (for example \`git clone --local ${sourceCwd} ${join(cwd, 'repo')}\`).`,
+  ];
+}
+
 function buildPanelTask(
   member: PanelMemberConfig,
   prompt: string,
   includeDecisionRecord: boolean,
   callerContractOverride?: CallerOutputContract,
   allowSupervisor = false,
+  workspaceRules: readonly string[] = [READ_ONLY_RULE],
 ): string {
   const role = member.role?.trim() || 'independent analysis and critique';
   const callerContract = callerContractForPrompt(
@@ -596,7 +670,7 @@ function buildPanelTask(
     '',
     'Instructions:',
     '- Work independently from the other panelists.',
-    '- Read-only: inspect only; leave files, git state, and the workspace untouched.',
+    ...workspaceRules,
     allowSupervisor
       ? '- Do not consult other panelists. Parent supervisor coordination is allowed only for progress updates and deadline decisions.'
       : '- Do not ask other agents.',

@@ -1,4 +1,6 @@
 import { randomUUID } from 'node:crypto';
+import { mkdir, mkdtemp } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   detectCallerOutputContract,
@@ -44,6 +46,7 @@ import {
   appendThinkingSuffix,
   buildPanelSpawnParams,
   resolveEffectiveTimeouts,
+  scratchPanelDir,
 } from './run-builder.js';
 import {
   extractRunObservation,
@@ -98,6 +101,7 @@ import {
   type PanelOutput,
   type ParsedFusionArgs,
   resolveSynthesisMode,
+  type ScratchWorkspace,
 } from './types.js';
 
 export const SUBAGENT_ASYNC_COMPLETE_EVENT = 'subagent:async-complete';
@@ -313,6 +317,11 @@ export class FusionOrchestrator {
           'Soft deadlines require pi-subagents RPC with nonRecoveringSteer. Update pi-subagents and reload Pi, or omit panelistSoftTimeoutMs.',
         );
       }
+      if (args.scratch)
+        resolved = {
+          ...resolved,
+          profile: { ...resolved.profile, scratchWorkspaces: true },
+        };
       verifyReviewContext(args.reviewContext);
       this.configWarning = undefined;
     } catch (error: unknown) {
@@ -358,6 +367,17 @@ export class FusionOrchestrator {
         error: 'Fusion operation was cancelled before launch.',
       };
     }
+    let scratch: ScratchWorkspace | undefined;
+    try {
+      scratch = await createScratchWorkspace(
+        resolved.profile,
+        args.reviewContext?.cwd ?? ctx.cwd,
+      );
+    } catch (error: unknown) {
+      const message = `Could not create Fusion scratch workspaces: ${errorMessage(error)}`;
+      this.notify(ctx, message, 'error');
+      return { status: 'failed', error: message };
+    }
     let run: FusionRun;
     const spawnParams = {
       ...buildPanelSpawnParams(
@@ -366,6 +386,7 @@ export class FusionOrchestrator {
         outputContract,
         args.timeoutOverrides,
         args.executionLifetime,
+        scratch,
       ),
       ...(args.reviewContext
         ? { cwd: args.reviewContext.cwd, worktree: false }
@@ -3751,4 +3772,19 @@ function unknownArray(value: unknown): readonly unknown[] | undefined {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/** Creates one private directory per panelist when the profile asks for it. */
+async function createScratchWorkspace(
+  profile: FusionProfile,
+  sourceCwd: string,
+): Promise<ScratchWorkspace | undefined> {
+  if (!profile.scratchWorkspaces) return undefined;
+  const root = await mkdtemp(join(tmpdir(), 'pi-fusion-'));
+  await Promise.all(
+    profile.panel.map((member, index) =>
+      mkdir(scratchPanelDir(root, index, member), { recursive: true }),
+    ),
+  );
+  return { root, sourceCwd };
 }

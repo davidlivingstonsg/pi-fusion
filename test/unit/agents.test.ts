@@ -8,6 +8,7 @@ import {
   JUDGE_AGENT,
   PANEL_AGENT,
   PANEL_AGENT_FULL,
+  PANEL_AGENT_SHELL,
   PANEL_AGENT_WEB,
 } from '../../src/types.js';
 import { required } from '../support/required.js';
@@ -49,15 +50,17 @@ test('shipped agents use only known tool names', async () => {
   }
 });
 
-test('only fusion-panelist-full may write to the workspace', async () => {
+test('only the full and shell panelists may write to the workspace', async () => {
   const agents = await loadShippedAgents();
 
   for (const agent of agents) {
     const writeTools = agent.tools.filter((tool) => WRITE_TOOLS.has(tool));
-    if (agent.name === 'fusion-panelist-full') {
+    if (
+      ['fusion-panelist-full', 'fusion-panelist-shell'].includes(agent.name)
+    ) {
       assert.ok(
         writeTools.length > 0,
-        'fusion-panelist-full is expected to grant write tools',
+        `${agent.name} is expected to grant write tools`,
       );
       continue;
     }
@@ -122,6 +125,22 @@ test('no shipped agent enables web_research by default', async () => {
       `${agent.file} must not enable web_research: a panel would fan it out concurrently`,
     );
   }
+});
+
+test('fusion-panelist-shell adds shell and write tools without web tools', async () => {
+  const agents = await loadShippedAgents();
+  const shell = agents.find((agent) => agent.name === 'fusion-panelist-shell');
+
+  assert.ok(shell);
+  assert.deepEqual(shell.tools, [
+    'read',
+    'grep',
+    'find',
+    'ls',
+    'bash',
+    'edit',
+    'write',
+  ]);
 });
 
 test('fusion-panelist-web adds web access to the core set', async () => {
@@ -189,10 +208,11 @@ test('agent name constants match the shipped agent files', async () => {
     PANEL_AGENT,
     PANEL_AGENT_WEB,
     PANEL_AGENT_FULL,
+    PANEL_AGENT_SHELL,
     JUDGE_AGENT,
     COMPOSER_AGENT,
   ]) {
     assert.ok(shipped.has(constant), `no shipped agent for ${constant}`);
   }
-  assert.equal(shipped.size, 5);
+  assert.equal(shipped.size, 6);
 });

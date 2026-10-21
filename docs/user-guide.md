@@ -369,6 +369,20 @@ Panel member:
 
 ## Panel agents and tools
 
+### Scratch workspaces
+
+Use scratch workspaces when panelists must run commands, for example to check
+out and test a PR. Turn them on per run with `/fusion --scratch <prompt>` or
+the tool's `scratch: true`, or per profile with `"scratchWorkspaces": true`.
+
+- Fusion creates `$TMPDIR/pi-fusion-<random>/panel-<n>-<id>/` for each panelist
+  and uses it as that panelist's working directory.
+- Bundled read-only panelists switch to `fusion-panelist-shell`. Custom agents
+  are kept, so they need their own `bash`/`write` tools.
+- The task tells each panelist to leave the source checkout untouched and to
+  work on a copy. This is an instruction, not a sandbox.
+- Fusion does not delete the directories after the run.
+
 A panel member's tools come from its **agent definition**, not from `fusion.json`.
 `pi-subagents` has no per-task tool override, so `agent` is the knob.
 
@@ -379,6 +393,7 @@ Fusion ships five:
 | `pi-fusion.fusion-panelist` | `read, grep, find, ls` | Default. Local inspection only. It needs no extra extension. |
 | `pi-fusion.fusion-panelist-web` | above plus `web_search, web_contents, web_answer` | Opt-in. **Requires `pi-web-providers`.** |
 | `pi-fusion.fusion-panelist-full` | above plus `bash, edit, write, web_research` | Opt-in. Requires `pi-web-providers`. **See the warning below.** |
+| `pi-fusion.fusion-panelist-shell` | `read, grep, find, ls, bash, edit, write` | Scratch-workspace runs. No web tools. Fusion selects it for you. |
 | `pi-fusion.fusion-judge` | `read, grep, find, ls` | Judge. The read tools let it verify contested claims. |
 | `pi-fusion.fusion-composer` | `read, grep, find, ls` | Synthesis under `synthesis: "merge"`. |
 

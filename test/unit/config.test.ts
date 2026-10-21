@@ -1038,3 +1038,19 @@ test('buildInlinePanelProfile drops merge synthesis: inline members have no face
     true,
   );
 });
+
+test('parseFusionConfig validates scratchWorkspaces as a boolean', () => {
+  const parse = (scratchWorkspaces: unknown) =>
+    parseFusionConfig(
+      JSON.stringify({
+        defaultProfile: 'quality',
+        profiles: {
+          quality: { panel: [PANEL_MEMBER], judge: JUDGE, scratchWorkspaces },
+        },
+      }),
+      'test',
+    );
+
+  assert.equal(parse(true).profiles.quality?.scratchWorkspaces, true);
+  assert.throws(() => parse('yes'));
+});

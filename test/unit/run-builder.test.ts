@@ -1218,3 +1218,50 @@ test('label defaults to id', () => {
     /Panel member: architect \(architect\)/,
   );
 });
+
+test('scratch workspaces give each panelist a private cwd and shell tools', () => {
+  const params = buildPanelSpawnParams(
+    PROFILE,
+    'Review PR 5',
+    undefined,
+    undefined,
+    undefined,
+    { root: '/tmp/fusion-x', sourceCwd: '/repo' },
+  );
+  const tasks = workflowTasks(params);
+
+  assert.deepEqual(
+    tasks.map((task) => task.cwd),
+    [
+      '/tmp/fusion-x/panel-1-architect',
+      '/tmp/fusion-x/panel-2-tester',
+      '/tmp/fusion-x/panel-3-generalist',
+    ],
+  );
+  for (const task of tasks) {
+    assert.equal(task.agent, 'pi-fusion.fusion-panelist-shell');
+    assert.ok(task.task.includes(`scratch directory is ${task.cwd}`));
+    assert.match(task.task, /\/repo is shared with other panelists/);
+    assert.doesNotMatch(task.task, /Read-only: inspect only/);
+  }
+});
+
+test('scratch workspaces keep custom agents and sanitise directory names', () => {
+  const params = buildPanelSpawnParams(
+    { ...PROFILE, panel: [{ id: '../Odd id', agent: 'custom.reviewer' }] },
+    'review',
+    undefined,
+    undefined,
+    { mode: 'unbounded' },
+    { root: '/tmp/r', sourceCwd: '/repo' },
+  );
+  const [task] = workflowTasks(params);
+
+  assert.equal(task?.agent, 'custom.reviewer');
+  assert.equal(task?.cwd, '/tmp/r/panel-1-odd-id');
+});
+
+test('panels without scratch workspaces keep the shared cwd', () => {
+  for (const task of workflowTasks(buildPanelSpawnParams(PROFILE, 'review')))
+    assert.equal('cwd' in task, false);
+});

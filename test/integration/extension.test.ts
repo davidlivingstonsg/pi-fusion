@@ -12,6 +12,7 @@ import {
   subagentsRpcReplyChannel,
 } from '../../src/subagents-rpc.js';
 import { createProjectDir, FakePi, nextTick } from '../support/fake-pi.js';
+import { removeScratchRoot, serializedPanelTasks } from '../support/scratch.js';
 
 test('recovery tool receipt presents its diagnostic once', async (t) => {
   const pi = new FakePi();
@@ -293,6 +294,7 @@ test('start_fusion_review exposes the parameters a skill can drive', () => {
     'panelistTimeoutMs',
     'profile',
     'prompt',
+    'scratch',
   ]);
   assert.deepEqual(tool.parameters.required, ['prompt']);
   const promptSchema = tool.parameters.properties.prompt;
@@ -363,4 +365,25 @@ test('start_fusion_review forwards an inline panel and omits it when absent', as
     withoutPanel.script.match(/^const tasks = (.*);$/m)?.[1] ?? 'null',
   ) as unknown[];
   assert.equal(withoutPanelTasks.length, 3, 'falls back to the profile panel');
+});
+
+test('start_fusion_review forwards scratch to give panelists private cwds', async (t) => {
+  const pi = new FakePi();
+  const ctx = pi.createContext(await createProjectDir(t));
+  fusionExtension(pi.asExtensionApi());
+  const tool = pi.tools.get('start_fusion_review');
+  assert.ok(tool);
+
+  await tool.execute(
+    'call-1',
+    { prompt: 'review PR', scratch: true },
+    undefined,
+    undefined,
+    ctx,
+  );
+  const tasks = serializedPanelTasks(pi.events.spawns.at(-1));
+  const dirs = tasks.map((task) => task.cwd);
+  assert.ok(dirs.every((dir) => typeof dir === 'string'));
+  t.onTestFinished(() => removeScratchRoot(dirs[0] as string));
+  assert.equal(new Set(dirs).size, tasks.length);
 });

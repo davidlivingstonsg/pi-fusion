@@ -3,7 +3,7 @@ import { isTimerMs } from './runtime-values.js';
 import type { FusionTimeoutOverrides, ParsedFusionArgs } from './types.js';
 
 const FUSION_USAGE =
-  'Usage: /fusion <prompt> | /fusion --profile <name> <prompt> | /fusion --panel <models> <prompt> [--judge <agent>[:<model>[:<level>]]] [--panelist-timeout-ms n --panel-timeout-ms n --panel-grace-ms n --judge-timeout-ms n] | /fusion status | /fusion stop | /fusion init.';
+  'Usage: /fusion <prompt> | /fusion --profile <name> <prompt> | /fusion --panel <models> <prompt> [--judge <agent>[:<model>[:<level>]]] [--scratch] [--panelist-timeout-ms n --panel-timeout-ms n --panel-grace-ms n --judge-timeout-ms n] | /fusion status | /fusion stop | /fusion init.';
 
 /**
  * Splits a `--judge` spec into 1-3 non-empty colon segments:
@@ -52,6 +52,7 @@ export function parseFusionArgs(
   let profile: string | undefined;
   let panel: string[] | undefined;
   let judgeOverride: string | undefined;
+  let scratch: true | undefined;
   const timeoutOverrides: FusionTimeoutOverrides = {};
   const timeoutOptions: Record<string, keyof FusionTimeoutOverrides> = {
     '--panelist-timeout-ms': 'panelistTimeoutMs',
@@ -64,6 +65,11 @@ export function parseFusionArgs(
   for (let index = 0; index < tokens.length; index++) {
     const token = tokens[index];
     if (!token) continue;
+
+    if (promptTokens.length === 0 && token === '--scratch') {
+      scratch = true;
+      continue;
+    }
 
     if (promptTokens.length === 0 && token === '--panel') {
       const value = tokens[index + 1];
@@ -177,6 +183,7 @@ export function parseFusionArgs(
     ...(profile ? { profile } : {}),
     ...(panel ? { panel } : {}),
     ...(judgeOverride ? { judgeOverride } : {}),
+    ...(scratch ? { scratch } : {}),
     ...(Object.keys(timeoutOverrides).length ? { timeoutOverrides } : {}),
   };
 }
