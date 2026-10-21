@@ -46,7 +46,7 @@ export function parseFusionArgs(
   input: string | readonly string[],
 ): ParsedFusionArgs {
   const tokens =
-    typeof input === 'string' ? tokenizeCommandArgs(input) : [...input];
+    typeof input === 'string' ? tokenizeFusionArgs(input) : [...input];
   if (tokens[0] === '/fusion' || tokens[0] === 'fusion') tokens.shift();
 
   let profile: string | undefined;
@@ -194,50 +194,80 @@ function parsePanelEntries(value: string): string[] {
 
 export function tokenizeCommandArgs(input: string): string[] {
   const tokens: string[] = [];
-  let current = '';
-  let quote: "'" | '"' | undefined;
-  let escaping = false;
+  for (let next = readToken(input, 0); next; next = readToken(input, next.end))
+    tokens.push(next.token);
+  return tokens;
+}
 
-  for (const char of input.trim()) {
-    if (escaping) {
-      current += char;
-      escaping = false;
-      continue;
+/** Options whose next token is their value, not the start of the prompt. */
+const VALUE_OPTIONS = new Set([
+  '--panel',
+  '--profile',
+  '-p',
+  '--judge',
+  '--panelist-timeout-ms',
+  '--panel-timeout-ms',
+  '--panel-grace-ms',
+  '--judge-timeout-ms',
+]);
+
+/**
+ * Tokenizes leading `/fusion` options like a shell, then keeps the free-text
+ * prompt verbatim so apostrophes and quotes in it survive.
+ */
+export function tokenizeFusionArgs(input: string): string[] {
+  const tokens: string[] = [];
+  let position = 0;
+  let expectsValue = false;
+  for (;;) {
+    const start = skipWhitespace(input, position);
+    if (start >= input.length) return tokens;
+    const isOption = input[start] === '-';
+    const isCommand =
+      tokens.length === 0 && /^\/?fusion(\s|$)/.test(input.slice(start));
+    if (!expectsValue && !isOption && !isCommand) {
+      tokens.push(input.slice(start).trimEnd());
+      return tokens;
     }
-
-    if (char === '\\') {
-      escaping = true;
-      continue;
-    }
-
-    if (quote) {
-      if (char === quote) {
-        quote = undefined;
-      } else {
-        current += char;
-      }
-      continue;
-    }
-
-    if (char === "'" || char === '"') {
-      quote = char;
-      continue;
-    }
-
-    if (/\s/.test(char)) {
-      if (current) {
-        tokens.push(current);
-        current = '';
-      }
-      continue;
-    }
-
-    current += char;
+    const next = readToken(input, start);
+    if (!next) return tokens;
+    tokens.push(next.token);
+    expectsValue = !expectsValue && VALUE_OPTIONS.has(next.token);
+    position = next.end;
   }
+}
 
-  if (escaping) current += '\\';
+function skipWhitespace(input: string, position: number): number {
+  let index = position;
+  while (index < input.length && /\s/.test(input[index] ?? '')) index++;
+  return index;
+}
+
+function readToken(
+  input: string,
+  position: number,
+): { token: string; end: number } | undefined {
+  let index = skipWhitespace(input, position);
+  if (index >= input.length) return undefined;
+  let token = '';
+  let quote: "'" | '"' | undefined;
+  for (; index < input.length; index++) {
+    const char = input[index] ?? '';
+    if (char === '\\') {
+      index++;
+      token += input[index] ?? '\\';
+    } else if (quote) {
+      if (char === quote) quote = undefined;
+      else token += char;
+    } else if (char === "'" || char === '"') {
+      quote = char;
+    } else if (/\s/.test(char)) {
+      break;
+    } else {
+      token += char;
+    }
+  }
   if (quote)
     throw new FusionArgsError(`Unclosed ${quote} quote in /fusion arguments.`);
-  if (current) tokens.push(current);
-  return tokens;
+  return { token, end: index };
 }

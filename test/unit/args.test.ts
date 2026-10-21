@@ -44,10 +44,10 @@ test('parseFusionArgs keeps flags after the first prompt token as prompt text', 
   });
 });
 
-test('parseFusionArgs supports quoted prompt words', () => {
+test('parseFusionArgs keeps quoted prompt words verbatim', () => {
   assert.deepEqual(parseFusionArgs('-p fast "compare A" \'against B\''), {
     profile: 'fast',
-    prompt: 'compare A against B',
+    prompt: '"compare A" \'against B\'',
   });
 });
 
@@ -226,4 +226,18 @@ test('parseFusionArgs treats --judge after the prompt as prompt text', () => {
 
   assert.equal(args.judgeOverride, undefined);
   assert.equal(args.prompt, 'Compare --judge judge');
+});
+
+test('parseFusionArgs keeps apostrophes and quotes in the free-text prompt', () => {
+  assert.equal(
+    parseFusionArgs('/fusion What\'s the "best" design?').prompt,
+    'What\'s the "best" design?',
+  );
+  const args = parseFusionArgs(
+    "/fusion --profile 'deep dive' --panel opus,gpt --judge-timeout-ms 5 Don't  drop  spacing",
+  );
+  assert.equal(args.profile, 'deep dive');
+  assert.deepEqual(args.panel, ['opus', 'gpt']);
+  assert.equal(args.timeoutOverrides?.judgeTimeoutMs, 5);
+  assert.equal(args.prompt, "Don't  drop  spacing");
 });
